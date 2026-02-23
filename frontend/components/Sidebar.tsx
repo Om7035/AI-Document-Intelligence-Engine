@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { FileText, Plus, Clock, Trash2, CheckCircle, Loader2, XCircle, Brain } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { FileText, Plus, Clock, Trash2, CheckCircle, Loader2, XCircle, Brain, Wifi, WifiOff } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { getDocuments, deleteDocument } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 const statusConfig = {
     completed: { icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Ready' },
@@ -34,21 +36,37 @@ interface SidebarProps {
 export default function Sidebar({ onNewDocument }: SidebarProps) {
     const { documents, setDocuments, currentDocumentId, setCurrentDocumentId, removeDocument, addToast } = useStore();
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [backendOk, setBackendOk] = useState<boolean | null>(null); // null = checking
 
+    // Ping backend health
+    const checkBackend = useCallback(async () => {
+        try {
+            const res = await fetch(API_BASE.replace('/api', '/health'), { signal: AbortSignal.timeout(3000) });
+            setBackendOk(res.ok);
+        } catch {
+            setBackendOk(false);
+        }
+    }, []);
+
+    // Poll documents + backend health
     useEffect(() => {
         const fetchDocs = async () => {
             try {
                 const docs = await getDocuments();
                 setDocuments(docs);
+                setBackendOk(true);
             } catch {
-                // Silent fail - backend may not be up yet
+                setBackendOk(false);
             }
         };
 
+        checkBackend();
         fetchDocs();
-        const interval = setInterval(fetchDocs, 3000);
+        const interval = setInterval(() => {
+            fetchDocs();
+        }, 3000);
         return () => clearInterval(interval);
-    }, [setDocuments]);
+    }, [setDocuments, checkBackend]);
 
     const handleDelete = async (e: React.MouseEvent, docId: string) => {
         e.stopPropagation();
@@ -151,9 +169,25 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
                 )}
             </div>
 
-            {/* Footer */}
-            <div className="p-4 border-t border-slate-800/80">
-                <div className="flex items-center gap-2 text-xs text-slate-600">
+            {/* Footer — backend status */}
+            <div className="p-4 border-t border-slate-800/80 space-y-2">
+                {/* Backend indicator */}
+                <div className={cn(
+                    'flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg',
+                    backendOk === true && 'bg-emerald-500/10 text-emerald-400',
+                    backendOk === false && 'bg-red-500/10 text-red-400',
+                    backendOk === null && 'bg-slate-800/50 text-slate-500',
+                )}>
+                    {backendOk === true && <Wifi size={12} />}
+                    {backendOk === false && <WifiOff size={12} />}
+                    {backendOk === null && <Loader2 size={12} className="animate-spin" />}
+                    <span className="font-medium">
+                        {backendOk === true ? 'Backend ready' : ''}
+                        {backendOk === false ? 'Backend offline — run start_backend.bat' : ''}
+                        {backendOk === null ? 'Connecting...' : ''}
+                    </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-slate-600">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     100% Local · Zero Cloud
                 </div>

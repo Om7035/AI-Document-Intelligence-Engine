@@ -44,19 +44,35 @@ export default function DocumentUploader() {
         setUploadState('uploading');
         setErrorMsg('');
 
+        // Pre-flight: verify backend is reachable
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+        try {
+            const ping = await fetch(apiBase.replace('/api', '/health'), {
+                signal: AbortSignal.timeout(3000),
+            });
+            if (!ping.ok) throw new Error('Backend unhealthy');
+        } catch {
+            setErrorMsg('Backend is offline. Run start_backend.bat, then wait for "Application startup complete."');
+            setUploadState('error');
+            addToast('error', 'Backend offline — start the backend server first.');
+            return;
+        }
+
         try {
             const doc = await uploadDocument(file);
             addDocument(doc);
             setCurrentDocumentId(doc.id);     // auto-navigate to new doc
             setUploadState('success');
-            addToast('success', `"${file.name}" uploaded — processing started.`);
+            addToast('success', `"${file.name}" uploaded — AI processing started.`);
             // Reset after 2s so uploader is reusable
-            setTimeout(() => setUploadState('idle'), 2000);
+            setTimeout(() => setUploadState('idle'), 2500);
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Upload failed.';
-            setErrorMsg(msg.includes('Network') ? 'Cannot reach backend. Is it running?' : msg);
+            setErrorMsg(msg.includes('Network') || msg.includes('ERR_CONNECTION_REFUSED')
+                ? 'Backend is offline. Run start_backend.bat first.'
+                : msg);
             setUploadState('error');
-            addToast('error', 'Upload failed. Check backend connection.');
+            addToast('error', 'Upload failed. Check the backend window for errors.');
         }
     };
 
