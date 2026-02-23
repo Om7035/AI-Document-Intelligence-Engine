@@ -23,10 +23,8 @@ export default function MindmapViewer() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mmRef = useRef<any>(null);
 
-    const { currentDocumentId, addToast } = useStore((s) => ({
-        currentDocumentId: s.currentDocumentId,
-        addToast: s.addToast,
-    }));
+    const currentDocumentId = useStore((s) => s.currentDocumentId);
+    const addToast = useStore((s) => s.addToast);
 
     const [markdown, setMarkdown] = useState('');
     const [loading, setLoading] = useState(false);

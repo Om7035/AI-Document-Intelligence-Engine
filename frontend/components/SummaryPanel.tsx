@@ -25,10 +25,8 @@ function formatBytes(bytes: number): string {
 }
 
 export default function SummaryPanel() {
-    const { currentDocument, addToast } = useStore((s) => ({
-        currentDocument: s.currentDocument,
-        addToast: s.addToast,
-    }));
+    const currentDocument = useStore((s) => s.currentDocument);
+    const addToast = useStore((s) => s.addToast);
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(true);
     const [reprocessing, setReprocessing] = useState(false);
