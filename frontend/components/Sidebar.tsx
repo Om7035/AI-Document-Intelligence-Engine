@@ -1,16 +1,20 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { FileText, Plus, Clock, Trash2, CheckCircle, Loader2, XCircle, Brain, Wifi, WifiOff } from 'lucide-react';
+import {
+    FileText, Plus, Clock, Trash2, CheckCircle,
+    Loader2, XCircle, Brain, Wifi, WifiOff,
+} from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { getDocuments, deleteDocument } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
+// ── Status badge config ────────────────────────────────────────────────────
 const statusConfig = {
-    completed: { icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Ready' },
-    failed: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10', label: 'Failed' },
+    completed: { icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Ready', spin: false },
+    failed: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10', label: 'Failed', spin: false },
     pending: { icon: Loader2, color: 'text-yellow-400', bg: 'bg-yellow-500/10', label: 'Pending', spin: true },
     extracting_text: { icon: FileText, color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'Extracting', spin: false },
     chunking: { icon: Loader2, color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'Chunking', spin: true },
@@ -22,33 +26,44 @@ function StatusBadge({ status }: { status: string }) {
     const cfg = statusConfig[status as keyof typeof statusConfig] ?? statusConfig.pending;
     const Icon = cfg.icon;
     return (
-        <span className={cn('flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider', cfg.bg, cfg.color)}>
-            <Icon size={9} className={'spin' in cfg && cfg.spin ? 'animate-spin' : ''} />
+        <span className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider',
+            cfg.bg, cfg.color,
+        )}>
+            <Icon size={9} className={cfg.spin ? 'animate-spin' : ''} />
             {cfg.label}
         </span>
     );
 }
 
+// ── Props ──────────────────────────────────────────────────────────────────
 interface SidebarProps {
     onNewDocument?: () => void;
 }
 
+// ── Sidebar ────────────────────────────────────────────────────────────────
 export default function Sidebar({ onNewDocument }: SidebarProps) {
-    const { documents, setDocuments, currentDocumentId, setCurrentDocumentId, removeDocument, addToast } = useStore();
+    const {
+        documents, setDocuments,
+        currentDocumentId, setCurrentDocumentId,
+        removeDocument, addToast,
+    } = useStore();
     const [deletingId, setDeletingId] = useState<string | null>(null);
-    const [backendOk, setBackendOk] = useState<boolean | null>(null); // null = checking
+    const [backendOk, setBackendOk] = useState<boolean | null>(null);
 
-    // Ping backend health
+    /** Ping /health every 5 s */
     const checkBackend = useCallback(async () => {
         try {
-            const res = await fetch(API_BASE.replace('/api', '/health'), { signal: AbortSignal.timeout(3000) });
-            setBackendOk(res.ok);
+            const r = await fetch(API_BASE.replace('/api', '/health'), {
+                signal: AbortSignal.timeout(3000),
+            });
+            setBackendOk(r.ok);
         } catch {
             setBackendOk(false);
         }
     }, []);
 
-    // Poll documents + backend health
+    /** Poll documents list every 3 s */
     useEffect(() => {
         const fetchDocs = async () => {
             try {
@@ -62,10 +77,8 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
 
         checkBackend();
         fetchDocs();
-        const interval = setInterval(() => {
-            fetchDocs();
-        }, 3000);
-        return () => clearInterval(interval);
+        const id = setInterval(fetchDocs, 3000);
+        return () => clearInterval(id);
     }, [setDocuments, checkBackend]);
 
     const handleDelete = async (e: React.MouseEvent, docId: string) => {
@@ -85,7 +98,8 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
 
     return (
         <div className="w-72 h-screen border-r border-slate-800 bg-slate-900/60 backdrop-blur-xl flex flex-col shrink-0">
-            {/* Logo / Header */}
+
+            {/* ── Logo / Header ──────────────────────────────────────── */}
             <div className="p-5 border-b border-slate-800/80">
                 <div className="flex items-center gap-2.5 mb-5">
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -106,7 +120,7 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
                 </button>
             </div>
 
-            {/* Document List */}
+            {/* ── Document List ───────────────────────────────────────── */}
             <div className="flex-1 overflow-y-auto py-3 px-2.5 custom-scrollbar">
                 <h3 className="px-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
                     My Documents ({documents.length})
@@ -121,14 +135,27 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
                 ) : (
                     <div className="space-y-1">
                         {documents.map((doc) => (
-                            <button
+                            /*
+                             * IMPORTANT: outer element MUST be a <div>, not <button>.
+                             * The delete icon inside is a <button>, and HTML forbids
+                             * nesting <button> inside <button>.
+                             */
+                            <div
                                 key={doc.id}
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => setCurrentDocumentId(doc.id)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        setCurrentDocumentId(doc.id);
+                                    }
+                                }}
                                 className={cn(
-                                    'w-full text-left px-3 py-3 rounded-xl transition-all group relative overflow-hidden',
+                                    'w-full text-left px-3 py-3 rounded-xl transition-all',
+                                    'group relative overflow-hidden cursor-pointer select-none',
                                     currentDocumentId === doc.id
                                         ? 'bg-blue-600/10 border border-blue-500/20 text-blue-100'
-                                        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
+                                        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent',
                                 )}
                             >
                                 <div className="flex items-start justify-between gap-2">
@@ -145,35 +172,33 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
                                         </div>
                                     </div>
 
-                                    {/* Delete button - appears on hover */}
+                                    {/* Delete — safe: outer is div, not button */}
                                     <button
                                         onClick={(e) => handleDelete(e, doc.id)}
                                         disabled={deletingId === doc.id}
-                                        className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-all shrink-0 mt-0.5"
+                                        className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-all shrink-0 mt-0.5 disabled:cursor-not-allowed"
                                         title="Delete document"
                                     >
                                         {deletingId === doc.id
                                             ? <Loader2 size={13} className="animate-spin" />
-                                            : <Trash2 size={13} />
-                                        }
+                                            : <Trash2 size={13} />}
                                     </button>
                                 </div>
 
-                                {/* Active indicator shimmer */}
+                                {/* Active indicator */}
                                 {currentDocumentId === doc.id && (
                                     <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500 rounded-r" />
                                 )}
-                            </button>
+                            </div>
                         ))}
                     </div>
                 )}
             </div>
 
-            {/* Footer — backend status */}
+            {/* ── Footer — backend status ─────────────────────────────── */}
             <div className="p-4 border-t border-slate-800/80 space-y-2">
-                {/* Backend indicator */}
                 <div className={cn(
-                    'flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg',
+                    'flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg font-medium',
                     backendOk === true && 'bg-emerald-500/10 text-emerald-400',
                     backendOk === false && 'bg-red-500/10 text-red-400',
                     backendOk === null && 'bg-slate-800/50 text-slate-500',
@@ -181,10 +206,10 @@ export default function Sidebar({ onNewDocument }: SidebarProps) {
                     {backendOk === true && <Wifi size={12} />}
                     {backendOk === false && <WifiOff size={12} />}
                     {backendOk === null && <Loader2 size={12} className="animate-spin" />}
-                    <span className="font-medium">
-                        {backendOk === true ? 'Backend ready' : ''}
-                        {backendOk === false ? 'Backend offline — run start_backend.bat' : ''}
-                        {backendOk === null ? 'Connecting...' : ''}
+                    <span>
+                        {backendOk === true && 'Backend ready'}
+                        {backendOk === false && 'Backend offline — run start_backend.bat'}
+                        {backendOk === null && 'Connecting…'}
                     </span>
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-slate-600">
