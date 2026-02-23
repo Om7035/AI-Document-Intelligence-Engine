@@ -148,3 +148,39 @@ def delete_document(doc_id: str):
     DocumentStore.delete(doc_id)
     ChunkStore.delete_by_document(doc_id)
     return {"message": "Document deleted successfully"}
+
+
+@router.post("/{doc_id}/reprocess/")
+async def reprocess_document(doc_id: str, background_tasks: BackgroundTasks):
+    """
+    Re-run the full AI pipeline (chunking → indexing → summary → mindmap)
+    on an already-uploaded document. Use this when a previous processing
+    run failed (e.g. Ollama was out of memory / not running).
+    """
+    doc = DocumentStore.get_by_id(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = doc.get("file_path", "")
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=422,
+            detail="Original file no longer on disk — please re-upload.",
+        )
+
+    # Reset status so the frontend shows progress again
+    DocumentStore.update(doc_id, {
+        "processing_status": "pending",
+        "summary": None,
+        "meta_data": {},
+    })
+    # Clear old chunks + FAISS index
+    ChunkStore.delete_by_document(doc_id)
+    try:
+        vector_store.delete_index(doc_id)
+    except Exception:
+        pass
+
+    background_tasks.add_task(process_document_background, doc_id, file_path)
+    return {"message": "Reprocessing started", "doc_id": doc_id}
+

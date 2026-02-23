@@ -1,10 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Copy, Check, BookOpen, Clock, FileText, Hash } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, BookOpen, Clock, FileText, Hash, RotateCcw, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui';
 import { useStore } from '@/store/useStore';
+import { reprocessDocument } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
+
+function isFailedSummary(text: string) {
+    const lower = text.toLowerCase();
+    return lower.includes('⚠️') || lower.includes('failed') || lower.includes('ensure ollama');
+}
 
 function estimateReadTime(text: string): string {
     const words = text.split(/\s+/).length;
@@ -19,9 +25,13 @@ function formatBytes(bytes: number): string {
 }
 
 export default function SummaryPanel() {
-    const currentDocument = useStore((s) => s.currentDocument);
+    const { currentDocument, addToast } = useStore((s) => ({
+        currentDocument: s.currentDocument,
+        addToast: s.addToast,
+    }));
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(true);
+    const [reprocessing, setReprocessing] = useState(false);
 
     const handleCopy = () => {
         if (currentDocument?.summary) {
@@ -31,10 +41,24 @@ export default function SummaryPanel() {
         }
     };
 
+    const handleReprocess = async () => {
+        if (!currentDocument) return;
+        setReprocessing(true);
+        try {
+            await reprocessDocument(currentDocument.id);
+            addToast('info', 'Re-processing started — check back in a minute.');
+        } catch {
+            addToast('error', 'Failed to start re-processing.');
+        } finally {
+            setReprocessing(false);
+        }
+    };
+
     if (!currentDocument) return null;
 
     const isProcessing = currentDocument.processing_status !== 'completed';
     const summary = currentDocument.summary;
+    const summaryFailed = !!summary && isFailedSummary(summary);
 
     return (
         <div className="flex flex-col gap-4">
@@ -111,6 +135,22 @@ export default function SummaryPanel() {
                                     <p className="text-xs text-slate-500 mt-3 text-center">
                                         Generating summary... ({currentDocument.processing_status})
                                     </p>
+                                </div>
+                            ) : summaryFailed ? (
+                                <div className="flex flex-col items-center gap-3 py-4">
+                                    <AlertTriangle className="w-8 h-8 text-amber-400" />
+                                    <p className="text-xs text-slate-400 text-center leading-relaxed">
+                                        Summary generation failed — likely out of RAM.<br />
+                                        Close other apps, then re-process.
+                                    </p>
+                                    <button
+                                        onClick={handleReprocess}
+                                        disabled={reprocessing}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded-lg transition-colors disabled:opacity-50 font-medium"
+                                    >
+                                        <RotateCcw size={12} className={reprocessing ? 'animate-spin' : ''} />
+                                        Re-process Document
+                                    </button>
                                 </div>
                             ) : summary ? (
                                 <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">

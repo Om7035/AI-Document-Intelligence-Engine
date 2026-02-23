@@ -42,6 +42,11 @@ export const deleteDocument = async (id: string) => {
     return response.data;
 };
 
+export const reprocessDocument = async (id: string) => {
+    const response = await api.post(`/documents/${id}/reprocess/`);
+    return response.data;
+};
+
 export const chatWithDocument = async (
     docId: string,
     message: string,
