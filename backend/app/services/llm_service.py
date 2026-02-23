@@ -1,48 +1,94 @@
-import ollama
+"""
+LLM Service — Ollama integration.
+All instantiation is lazy; client created on first use.
+"""
+import requests
 from app.core.config import settings
+
+
+def _ollama_available() -> bool:
+    """Quick reachability check for Ollama."""
+    try:
+        r = requests.get(f"{settings.OLLAMA_HOST}/api/tags", timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False
+
 
 class LLMService:
     def __init__(self):
         self.host = settings.OLLAMA_HOST
         self.model = settings.OLLAMA_MODEL
         self._client = None
-    
+
     @property
     def client(self):
-        """Lazy load the Ollama client"""
         if self._client is None:
+            import ollama  # lazy
             self._client = ollama.Client(host=self.host)
         return self._client
 
+    # ── Summary ──────────────────────────────────────────────────────────────
+
     def generate_summary(self, text: str) -> str:
-        # Simple prompt for summary
-        # Warning: Context window limits. We might need map-reduce for large docs.
-        # For MVP, we truncate or assume sections.
-        prompt = f"Summarize the following text in a concise executive summary:\n\n{text[:8000]}" 
+        if not text.strip():
+            return "No text available for summarisation."
+
+        prompt = (
+            "You are a professional document analyst. "
+            "Write a clear, structured executive summary of the following document text. "
+            "Use plain English. Focus on the main purpose, key findings, and conclusions. "
+            "Keep it under 300 words.\n\n"
+            f"DOCUMENT TEXT:\n{text[:10000]}\n\nSUMMARY:"
+        )
         try:
-            response = self.client.generate(model=self.model, prompt=prompt)
-            return response['response']
+            resp = self.client.generate(model=self.model, prompt=prompt)
+            return resp["response"].strip()
         except Exception as e:
-            print(f"LLM Error: {e}")
-            return "Summary generation failed."
+            print(f"LLM summary error: {e}")
+            return "Summary generation failed. Ensure Ollama is running with the correct model."
+
+    # ── Mindmap ───────────────────────────────────────────────────────────────
 
     def generate_mindmap(self, text: str) -> str:
-        prompt = f"Create a hierarchical markdown outline (mindmap) for the following text. Use # for main topics, ## for subtopics, and - for details. Do not write any intro or outro, just the markdown:\n\n{text[:6000]}"
+        if not text.strip():
+            return "# Document\n- No content available"
+
+        prompt = (
+            "You are a knowledge-map expert. "
+            "Create a hierarchical Markdown outline for the following document. "
+            "Rules:\n"
+            "- Use # for the document title\n"
+            "- Use ## for main sections/topics\n"
+            "- Use ### for sub-topics\n"
+            "- Use - for key points\n"
+            "- Output ONLY the Markdown, no preamble, no explanation.\n\n"
+            f"DOCUMENT TEXT:\n{text[:8000]}\n\nMARKDOWN OUTLINE:"
+        )
         try:
-            response = self.client.generate(model=self.model, prompt=prompt)
-            # Clean response to ensure only markdown
-            content = response['response']
+            resp = self.client.generate(model=self.model, prompt=prompt)
+            content = resp["response"].strip()
+            # Ensure it starts with a heading
+            if not content.startswith("#"):
+                content = "# Document Overview\n" + content
             return content
         except Exception as e:
-            print(f"LLM Error (Mindmap): {e}")
-            return "# Error\n- Could not generate mindmap"
+            print(f"LLM mindmap error: {e}")
+            return "# Document\n- Mindmap generation failed\n- Ensure Ollama is running"
+
+    # ── Chat (streaming) ──────────────────────────────────────────────────────
 
     def chat(self, messages: list):
-        # Generator for streaming
+        """Generator that yields text tokens for streaming."""
         try:
-            stream = self.client.chat(model=self.model, messages=messages, stream=True)
+            stream = self.client.chat(
+                model=self.model,
+                messages=messages,
+                stream=True,
+            )
             for chunk in stream:
-                if 'message' in chunk and 'content' in chunk['message']:
-                     yield chunk['message']['content']
+                token = chunk.get("message", {}).get("content", "")
+                if token:
+                    yield token
         except Exception as e:
-            yield f"Error: {str(e)}"
+            yield f"\n\n⚠️ LLM Error: {str(e)}"

@@ -1,5 +1,7 @@
+'use client';
+
 import { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Sparkles, RefreshCw } from 'lucide-react';
+import { Send, User, Bot, Sparkles, Trash2, Copy, Check } from 'lucide-react';
 import { Button, Input, Card } from '@/components/ui';
 import { chatWithDocument } from '@/lib/api';
 import { useStore } from '@/store/useStore';
@@ -11,160 +13,258 @@ interface Message {
     content: string;
 }
 
+function MessageBubble({ msg, index }: { msg: Message; index: number }) {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(msg.content);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.02 }}
+            className={cn(
+                'flex gap-3 max-w-[88%] group',
+                msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''
+            )}
+        >
+            {/* Avatar */}
+            <div className={cn(
+                'w-7 h-7 rounded-full flex items-center justify-center shrink-0 border mt-1',
+                msg.role === 'user'
+                    ? 'bg-blue-600/80 border-blue-400/30'
+                    : 'bg-emerald-700/80 border-emerald-400/30'
+            )}>
+                {msg.role === 'user' ? <User size={13} /> : <Bot size={13} />}
+            </div>
+
+            {/* Bubble */}
+            <div className="relative">
+                <div className={cn(
+                    'px-4 py-3 rounded-2xl text-sm leading-relaxed',
+                    msg.role === 'user'
+                        ? 'bg-blue-600/20 border border-blue-500/30 text-blue-50 rounded-tr-sm'
+                        : 'bg-slate-800/80 border border-slate-700/60 text-slate-200 rounded-tl-sm'
+                )}>
+                    {msg.content || <span className="italic text-slate-500">Thinking...</span>}
+                </div>
+                {/* Copy button */}
+                {msg.content && (
+                    <button
+                        onClick={handleCopy}
+                        className="absolute -bottom-5 right-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-slate-300 flex items-center gap-1 text-[10px]"
+                    >
+                        {copied ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                        {copied ? 'Copied' : 'Copy'}
+                    </button>
+                )}
+            </div>
+        </motion.div>
+    );
+}
+
 export default function ChatInterface() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const currentDocumentId = useStore((state) => state.currentDocumentId);
+    const addToast = useStore((state) => state.addToast);
 
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
     useEffect(scrollToBottom, [messages]);
 
+    // Reset messages when document changes
+    useEffect(() => {
+        setMessages([]);
+    }, [currentDocumentId]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim() || !currentDocumentId) return;
+        if (!input.trim() || !currentDocumentId || isLoading) return;
 
-        const userMessage = input;
+        const userMessage = input.trim();
         setInput('');
-        setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+        setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
         setIsLoading(true);
 
+        // Add empty assistant message that we'll fill in
+        setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
         try {
-            const response = await chatWithDocument(currentDocumentId, userMessage, []);
+            const response = await chatWithDocument(currentDocumentId, userMessage, messages);
 
-            // Handle streaming response
-            if (response.body) {
-                setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
 
-                let assistantMessage = '';
+            if (!response.body) {
+                throw new Error('No response body');
+            }
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let accumulated = '';
 
-                    const chunk = decoder.decode(value);
-                    // Simple parsing of SSE format "data: ..."
-                    // In real logic, might need robust parsing if chunks are split
-                    const lines = chunk.split('\n\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            // This depends on how backend actually streams. 
-                            // Our backend code yields raw strings, so streaming response would be raw text chunks usually
-                            // unless we wrapped in SSE format explicitly in backend (which we did blindly using "text/event-stream" without explicit "data:" prefix in the generator?)
-                            // Wait, backend `yield f"{block}"`? No, fastapi StreamingResponse with generator yields bytes.
-                            // If generator yields strings, FastAPI sends them as chunks.
-                            // Let's assume raw text for simpler MVP or adapt parsing.
-                            // Our backend yields `chunk['message']['content']`.
-                            // It is raw content chunks.
-                            assistantMessage += line.replace('data: ', '');
-                        } else {
-                            assistantMessage += line;
-                        }
-                    }
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                    setMessages(prev => {
-                        const newMessages = [...prev];
-                        newMessages[newMessages.length - 1].content = assistantMessage;
-                        return newMessages;
-                    });
-                }
+                // Backend yields raw text chunks (not SSE `data:` format)
+                const chunk = decoder.decode(value, { stream: true });
+                accumulated += chunk;
+
+                setMessages((prev) => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = {
+                        role: 'assistant',
+                        content: accumulated,
+                    };
+                    return updated;
+                });
             }
         } catch (error) {
-            console.error(error);
-            setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error.' }]);
+            console.error('Chat error:', error);
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                    role: 'assistant',
+                    content: `⚠️ Error: ${errorMsg}. Is the backend running?`,
+                };
+                return updated;
+            });
+            addToast('error', 'Chat failed. Check if the backend is running.');
         } finally {
             setIsLoading(false);
+            setTimeout(() => inputRef.current?.focus(), 100);
         }
+    };
+
+    const clearChat = () => {
+        setMessages([]);
     };
 
     if (!currentDocumentId) {
         return (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 p-8 text-center glass-panel">
-                <Sparkles className="w-12 h-12 mb-4 text-slate-600" />
-                <h3 className="text-xl font-medium text-slate-300">Select a document to chat</h3>
-                <p className="max-w-xs mt-2">Upload a PDF or select one from the sidebar to start asking questions.</p>
+            <div className="h-full flex flex-col items-center justify-center text-slate-500 p-8 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-center mb-5">
+                    <Sparkles className="w-8 h-8 text-slate-600" />
+                </div>
+                <h3 className="text-lg font-medium text-slate-300 mb-2">Select a document to begin</h3>
+                <p className="text-sm max-w-xs text-slate-500">
+                    Upload a PDF or pick one from the sidebar, then ask any question about it.
+                </p>
             </div>
         );
     }
 
     return (
-        <Card className="flex flex-col h-[600px] p-0 overflow-hidden relative">
+        <Card className="flex flex-col h-full p-0 overflow-hidden">
             {/* Header */}
-            <div className="p-4 border-b border-white/5 bg-slate-900/50 backdrop-blur-md flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                <span className="font-semibold text-slate-200">AI Assistant</span>
+            <div className="px-5 py-3 border-b border-white/5 bg-slate-900/60 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px] shadow-emerald-500 animate-pulse" />
+                    <span className="font-semibold text-slate-200 text-sm">AI Assistant</span>
+                    {messages.length > 0 && (
+                        <span className="text-xs text-slate-500">
+                            {Math.floor(messages.length / 2)} exchange{messages.length > 2 ? 's' : ''}
+                        </span>
+                    )}
+                </div>
+                {messages.length > 0 && (
+                    <button
+                        onClick={clearChat}
+                        className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-400 transition-colors px-2 py-1 rounded-md hover:bg-red-500/10"
+                    >
+                        <Trash2 size={12} />
+                        Clear
+                    </button>
+                )}
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
                 {messages.length === 0 && (
-                    <div className="text-center mt-20 opacity-50">
-                        <Bot className="w-16 h-16 mx-auto mb-4 text-slate-600" />
-                        <p>Ask anything about the document!</p>
+                    <div className="flex flex-col items-center justify-center h-full text-center opacity-50 gap-3">
+                        <Bot className="w-12 h-12 text-slate-600" />
+                        <p className="text-sm text-slate-400">Ask anything about the document</p>
+                        <div className="flex flex-wrap gap-2 justify-center">
+                            {['Summarize this document', 'What are the main findings?', 'List key conclusions'].map((q) => (
+                                <button
+                                    key={q}
+                                    onClick={() => {
+                                        setInput(q);
+                                        inputRef.current?.focus();
+                                    }}
+                                    className="text-xs px-3 py-1.5 rounded-full bg-slate-800/70 border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
+                                >
+                                    {q}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
+
                 <AnimatePresence>
                     {messages.map((msg, i) => (
-                        <motion.div
-                            key={i}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className={cn(
-                                "flex gap-4 max-w-[85%]",
-                                msg.role === 'user' ? "ml-auto flex-row-reverse" : ""
-                            )}
-                        >
-                            <div className={cn(
-                                "w-8 h-8 rounded-full flex items-center justify-center shrink-0 border",
-                                msg.role === 'user' ? "bg-blue-600 border-blue-400" : "bg-emerald-600 border-emerald-400"
-                            )}>
-                                {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
-                            </div>
-
-                            <div className={cn(
-                                "p-4 rounded-2xl text-sm leading-relaxed shadow-lg",
-                                msg.role === 'user'
-                                    ? "bg-blue-600/20 border border-blue-500/30 text-blue-50 rounded-tr-sm"
-                                    : "bg-slate-800/80 border border-slate-700 text-slate-200 rounded-tl-sm"
-                            )}>
-                                {msg.content}
-                            </div>
-                        </motion.div>
+                        <MessageBubble key={i} msg={msg} index={i} />
                     ))}
                 </AnimatePresence>
-                {isLoading && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4">
-                        <div className="w-8 h-8 rounded-full bg-emerald-600/50 flex items-center justify-center shrink-0 border border-emerald-400/30">
-                            <Bot size={14} />
+
+                {/* Typing indicator */}
+                {isLoading && messages[messages.length - 1]?.content === '' && (
+                    <div className="flex gap-3">
+                        <div className="w-7 h-7 rounded-full bg-emerald-700/60 flex items-center justify-center border border-emerald-400/20">
+                            <Bot size={13} />
                         </div>
-                        <div className="flex gap-1 items-center h-8">
-                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-0"></span>
-                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150"></span>
-                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-300"></span>
+                        <div className="flex gap-1 items-center px-4 py-3 bg-slate-800/80 rounded-2xl rounded-tl-sm border border-slate-700/60">
+                            {[0, 150, 300].map((delay) => (
+                                <span
+                                    key={delay}
+                                    className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"
+                                    style={{ animationDelay: `${delay}ms` }}
+                                />
+                            ))}
                         </div>
-                    </motion.div>
+                    </div>
                 )}
+
                 <div ref={messagesEndRef} />
             </div>
 
             {/* Input */}
-            <div className="p-4 bg-slate-900/50 border-t border-white/5 backdrop-blur-md">
+            <div className="p-4 bg-slate-900/60 border-t border-white/5 shrink-0">
                 <form onSubmit={handleSubmit} className="flex gap-2">
-                    <Input
+                    <input
+                        ref={inputRef}
                         value={input}
-                        onChange={(e: { target: { value: string; }; }) => setInput(e.target.value)}
-                        placeholder="Ask a question..."
-                        className="flex-1 bg-slate-800/50 border-slate-700 focus:bg-slate-800 transition-all font-light"
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder={isLoading ? 'Waiting for response...' : 'Ask a question...'}
+                        disabled={isLoading}
+                        className="flex-1 bg-slate-800/50 border border-slate-700 focus:border-blue-500/50 focus:bg-slate-800 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 outline-none transition-all disabled:opacity-50"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSubmit(e as unknown as React.FormEvent);
+                            }
+                        }}
                     />
-                    <Button type="submit" disabled={isLoading || !input.trim()} className="bg-blue-600 hover:bg-blue-500 w-12 h-10 p-0 rounded-lg">
-                        <Send size={18} />
-                    </Button>
+                    <button
+                        type="submit"
+                        disabled={isLoading || !input.trim()}
+                        className="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all shrink-0"
+                    >
+                        <Send size={16} />
+                    </button>
                 </form>
             </div>
         </Card>
