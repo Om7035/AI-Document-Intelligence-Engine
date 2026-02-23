@@ -3,7 +3,7 @@ AI Document Intelligence Engine — FastAPI Backend
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
+from app.core.config import settings, CORS_ORIGINS
 from app.api.routes import router
 from app.db.json_store import ensure_data_dir
 import os
@@ -17,11 +17,7 @@ app = FastAPI(
 # ── CORS ────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

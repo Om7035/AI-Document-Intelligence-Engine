@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, Sparkles, Trash2, Copy, Check } from 'lucide-react';
-import { Button, Input, Card } from '@/components/ui';
+import { Card } from '@/components/ui';
 import { chatWithDocument } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';

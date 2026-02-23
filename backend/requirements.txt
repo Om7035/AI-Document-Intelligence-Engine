@@ -1,15 +1,12 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 pymupdf
-spacy
 sentence-transformers
 faiss-cpu
+numpy<2.0
 ollama
-sqlalchemy
 pydantic
 pydantic-settings
-aiofiles
 python-dotenv
-networkx
 requests

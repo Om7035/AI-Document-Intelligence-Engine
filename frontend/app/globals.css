@@ -1,62 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 :root {
   --background: #0f172a;
-  /* Slate 900 */
+  /* slate-950 */
+  --surface: #1e293b;
+  /* slate-800 */
   --foreground: #f8fafc;
-  /* Slate 50 */
+  /* slate-50  */
   --primary: #3b82f6;
-  /* Blue 500 */
-  --primary-foreground: #ffffff;
-  --secondary: #1e293b;
-  /* Slate 800 */
-  --secondary-foreground: #f8fafc;
-  --accent: #0ea5e9;
-  /* Sky 500 */
+  /* blue-500  */
+  --accent: #6366f1;
+  /* indigo-500 */
   --border: #334155;
-  /* Slate 700 */
+  /* slate-700 */
+  --radius: 0.75rem;
+}
 
-  --radius: 0.5rem;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom Scrollbar */
+/* ── Custom Scrollbar ─────────────────────────────────────────────────────── */
+.custom-scrollbar::-webkit-scrollbar,
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 5px;
+  height: 5px;
 }
 
+.custom-scrollbar::-webkit-scrollbar-track,
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 
+.custom-scrollbar::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
-  background: var(--secondary);
-  border-radius: 4px;
+  background: #334155;
+  /* slate-700 */
+  border-radius: 99px;
 }
 
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border);
+  background: #475569;
+  /* slate-600 */
 }
 
-/* Glassmorphism utilities */
+/* ── Glassmorphism utilities ──────────────────────────────────────────────── */
 .glass {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(30, 41, 59, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .glass-panel {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.75rem;
-  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  background: rgba(15, 23, 42, 0.80);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius);
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.4),
+    0 25px 50px -12px rgb(0 0 0 / 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* ── Focus ring ───────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation: fade-in 0.3s ease forwards;
+}
+
+.slide-up {
+  animation: slide-up 0.4s ease forwards;
+}
+
+/* Bounce delay utilities for typing indicators */
+.delay-0 {
+  animation-delay: 0ms;
+}
+
+.delay-150 {
+  animation-delay: 150ms;
+}
+
+.delay-300 {
+  animation-delay: 300ms;
 }

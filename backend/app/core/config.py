@@ -1,32 +1,43 @@
 import os
-from typing import List, Union
-from pydantic import AnyHttpUrl, field_validator
+import json
+from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Document Intelligence Engine"
-    PROJECT_VERSION: str = "0.1.0"
+    PROJECT_VERSION: str = "0.2.0"
     API_V1_STR: str = "/api"
-    
-    # CORS
-    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
-
-    # Infrastructure
+    # Ollama
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1"
+
+    # Storage
     FAISS_INDEX_PATH: str = "./data/faiss_indices"
     UPLOAD_DIR: str = "./data/uploads"
-    DATABASE_URL: str = "sqlite:///./data/documents.db"
-    MAX_FILE_SIZE: int = 52428800  # 50MB
+    MAX_FILE_SIZE: int = 52_428_800  # 50 MB
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    # CORS — stored as a plain string, parsed manually below
+    BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    def get_cors_origins(self) -> List[str]:
+        """Parse CORS origins from comma-separated string or JSON array."""
+        v = self.BACKEND_CORS_ORIGINS.strip()
+        if v.startswith("["):
+            try:
+                return json.loads(v)
+            except Exception:
+                pass
+        return [o.strip() for o in v.split(",") if o.strip()]
+
 
 settings = Settings()
+CORS_ORIGINS = settings.get_cors_origins()
