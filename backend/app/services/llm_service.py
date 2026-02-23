@@ -80,7 +80,7 @@ class LLMService:
         Raises on failure so callers can handle gracefully.
         """
         import ollama
-        model = _best_model() if not hasattr(self, '_resolved_model') else self._resolved_model
+        model = self._best_model() if not hasattr(self, '_resolved_model') else self._resolved_model
         # cache the resolved model for the session
         self._resolved_model = model
         print(f"  [LLM] Using model: {model}")
