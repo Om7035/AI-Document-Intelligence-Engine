@@ -29,10 +29,9 @@ export default function MindmapViewer() {
     const [markdown, setMarkdown] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [failed, setFailed] = useState(false);        // LLM failed in background
+    const [failed, setFailed] = useState(false);
     const [reprocessing, setReprocessing] = useState(false);
 
-    // ─── Fetch mindmap ────────────────────────────────────────────────────────
     const fetchMindmap = useCallback(async (docId: string) => {
         setLoading(true);
         setError('');
@@ -48,39 +47,36 @@ export default function MindmapViewer() {
             }
         } catch (e) {
             console.error(e);
-            setError('Failed to load mindmap from backend.');
+            setError('Failed to load mindmap.');
             setMarkdown('');
         } finally {
             setLoading(false);
         }
     }, []);
 
-    // ─── Re-process document ──────────────────────────────────────────────────
     const handleReprocess = async () => {
         if (!currentDocumentId) return;
         setReprocessing(true);
-        setFailed(false);
-        setError('');
         try {
             await reprocessDocument(currentDocumentId);
-            addToast('info', 'Re-processing started — this may take a few minutes.');
-            // Poll until no longer pending
+            addToast('info', 'Re-processing started...');
             const poll = setInterval(async () => {
-                await fetchMindmap(currentDocumentId);
-                // fetchMindmap sets failed/markdown — if markdown arrives, content will render
+                const data = await getDocumentMindmap(currentDocumentId);
+                if (data.content && !isBrokenContent(data.content)) {
+                    setMarkdown(data.content);
+                    setFailed(false);
+                    clearInterval(poll);
+                }
             }, 5000);
-            // Stop polling after 3 minutes no matter what
-            setTimeout(() => clearInterval(poll), 180_000);
+            setTimeout(() => clearInterval(poll), 120000);
         } catch (e) {
             console.error(e);
-            addToast('error', 'Failed to trigger re-processing. Is the backend running?');
-            setFailed(true);
+            addToast('error', 'Failed to trigger re-processing.');
         } finally {
             setReprocessing(false);
         }
     };
 
-    // Fetch when document changes
     useEffect(() => {
         if (!currentDocumentId) return;
         setMarkdown('');
@@ -88,7 +84,6 @@ export default function MindmapViewer() {
         fetchMindmap(currentDocumentId);
     }, [currentDocumentId, fetchMindmap]);
 
-    // Render mindmap when markdown arrives
     useEffect(() => {
         if (!markdown || !svgRef.current) return;
 
@@ -96,8 +91,25 @@ export default function MindmapViewer() {
 
         const render = async () => {
             const { Transformer } = await import('markmap-lib');
-            const { Markmap } = await import('markmap-view');
+            const { Markmap, loadCSS, loadJS } = await import('markmap-view');
             if (cancelled || !svgRef.current) return;
+
+            // Define custom styles to match the dark theme
+            const customStyle = `
+                .markmap-node { font-family: 'Inter', sans-serif; cursor: pointer; }
+                .markmap-node-text { fill: #f1f5f9; font-size: 13px; font-weight: 500; }
+                .markmap-link { stroke: #334155; stroke-width: 1.5; stroke-opacity: 0.6; }
+                .markmap-node-circle { fill: #1e293b; stroke: #3b82f6; stroke-width: 1.5; }
+                
+                /* Level-specific colors */
+                .markmap-node[data-depth="0"] .markmap-node-text { font-size: 18px; font-weight: 800; fill: #fff; }
+                .markmap-node[data-depth="1"] .markmap-node-text { font-size: 15px; font-weight: 700; fill: #60a5fa; }
+                .markmap-node[data-depth="2"] .markmap-node-text { fill: #94a3b8; }
+                
+                /* Depth colors for links */
+                .markmap-link[data-depth="0"] { stroke: #3b82f6; stroke-width: 3; stroke-opacity: 0.8; }
+                .markmap-link[data-depth="1"] { stroke: #6366f1; stroke-width: 2; }
+            `;
 
             const transformer = new Transformer();
             const { root } = transformer.transform(markdown);
@@ -107,7 +119,23 @@ export default function MindmapViewer() {
                 mmRef.current.fit();
             } else {
                 svgRef.current.innerHTML = '';
-                mmRef.current = Markmap.create(svgRef.current, undefined, root);
+                // Create instance with custom options
+                mmRef.current = Markmap.create(svgRef.current, {
+                    autoFit: true,
+                    duration: 500,
+                    paddingX: 16,
+                    spacingHorizontal: 100,
+                    spacingVertical: 20,
+                    color: (node) => {
+                        const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
+                        return colors[node.depth % colors.length];
+                    },
+                }, root);
+
+                // Inject custom CSS
+                const styleTag = document.createElement('style');
+                styleTag.innerHTML = customStyle;
+                svgRef.current.appendChild(styleTag);
             }
         };
 
@@ -116,7 +144,6 @@ export default function MindmapViewer() {
     }, [markdown]);
 
     const handleFit = () => mmRef.current?.fit();
-
     const handleExport = () => {
         if (!svgRef.current) return;
         const svgData = new XMLSerializer().serializeToString(svgRef.current);
@@ -132,125 +159,91 @@ export default function MindmapViewer() {
     if (!currentDocumentId) return null;
 
     return (
-        <Card className="h-full p-0 overflow-hidden relative flex flex-col group">
-            {/* ── Toolbar ─────────────────────────────────────────────── */}
-            <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none">
-                <span className="bg-slate-900/85 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 text-[10px] font-mono text-slate-400 pointer-events-none select-none">
-                    {loading ? '⟳ LOADING…'
-                        : reprocessing ? '⟳ RE-PROCESSING…'
-                            : failed ? '✕ GENERATION FAILED'
-                                : error ? '✕ ERROR'
-                                    : 'MINDMAP VIEW'}
-                </span>
+        <Card className="h-full p-0 overflow-hidden relative flex flex-col group bg-slate-950/40 border-slate-800/50">
+            {/* Toolbar */}
+            <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
+                <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/5 shadow-2xl pointer-events-auto">
+                    <div className={loading || reprocessing ? "w-2 h-2 rounded-full bg-blue-500 animate-pulse" : "w-2 h-2 rounded-full bg-emerald-500"} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
+                        {loading ? 'Generating Analysis...' : failed ? 'Generation Failed' : 'Knowledge Map Visualizer'}
+                    </span>
+                </div>
 
                 {!loading && !failed && !error && markdown && (
-                    <div className="flex gap-1.5 pointer-events-auto">
+                    <div className="flex gap-2 pointer-events-auto">
                         <button
                             onClick={() => currentDocumentId && fetchMindmap(currentDocumentId)}
-                            className="bg-slate-900/85 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-slate-200 transition-colors"
+                            className="bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-blue-500/50 transition-all shadow-xl"
                             title="Refresh"
                         >
-                            <RefreshCw size={13} />
+                            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                         </button>
                         <button
                             onClick={handleFit}
-                            className="bg-slate-900/85 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-slate-200 transition-colors"
-                            title="Fit to screen"
+                            className="bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-blue-500/50 transition-all shadow-xl"
+                            title="Center View"
                         >
-                            <Maximize2 size={13} />
+                            <Maximize2 size={14} />
                         </button>
                         <button
                             onClick={handleExport}
-                            className="bg-slate-900/85 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-slate-200 transition-colors"
+                            className="bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-blue-500/50 transition-all shadow-xl"
                             title="Export SVG"
                         >
-                            <Download size={13} />
+                            <Download size={14} />
                         </button>
                     </div>
                 )}
             </div>
 
-            {/* ── Loading ──────────────────────────────────────────────── */}
-            {(loading || reprocessing) && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-950/80 z-20">
-                    <div className="w-12 h-12 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
-                    <p className="text-sm text-slate-400">
-                        {reprocessing ? 'Re-processing with AI…' : 'Loading mindmap…'}
-                    </p>
-                    <p className="text-xs text-slate-600 max-w-xs text-center">
-                        {reprocessing
-                            ? 'This can take 1–3 minutes on low-RAM machines. The page will update automatically.'
-                            : 'If generation is still running in the background, it will appear here shortly.'}
-                    </p>
-                </div>
-            )}
-
-            {/* ── Failed state (LLM ran out of RAM) ───────────────────── */}
+            {/* Error / Failed View */}
             {failed && !loading && !reprocessing && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-20 p-8">
-                    <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center">
-                        <AlertTriangle className="w-6 h-6 text-amber-400" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-slate-950/90 z-20 p-12 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 shadow-2xl shadow-amber-500/5">
+                        <AlertTriangle className="w-8 h-8 text-amber-500" />
                     </div>
-                    <div className="text-center max-w-sm">
-                        <p className="text-sm font-semibold text-slate-200 mb-1">Mindmap Generation Failed</p>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                            The AI model ran out of memory during background processing.
-                            Close other apps to free RAM, then click{' '}
-                            <strong className="text-slate-300">Re-process</strong> below.
+                    <div className="space-y-2">
+                        <h4 className="text-lg font-bold text-white">Visualizer Failed</h4>
+                        <p className="text-sm text-slate-400 max-w-sm">
+                            The document is complex and generation timed out or ran out of RAM. Please try re-processing.
                         </p>
                     </div>
-
-                    {/* Steps */}
-                    <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-4 text-xs text-slate-400 space-y-1.5 w-full max-w-xs">
-                        <p className="text-slate-300 font-semibold mb-2">To fix:</p>
-                        <p>1. Close browser tabs, IDE windows, etc.</p>
-                        <p>2. Free at least 1.5 GB of RAM</p>
-                        <p>3. Click <strong className="text-white">Re-process Document</strong> below</p>
-                    </div>
-
-                    <div className="flex gap-3">
+                    <div className="flex gap-4">
                         <button
                             onClick={handleReprocess}
-                            disabled={reprocessing}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-blue-500/20"
                         >
-                            <RotateCcw size={14} className={reprocessing ? 'animate-spin' : ''} />
-                            Re-process Document
-                        </button>
-                        <button
-                            onClick={() => currentDocumentId && fetchMindmap(currentDocumentId)}
-                            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm rounded-lg transition-colors font-medium"
-                        >
-                            <RefreshCw size={14} />
-                            Check Again
+                            <RotateCcw size={16} />
+                            Re-process AI
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* ── Network / fetch error ────────────────────────────────── */}
-            {error && !loading && !failed && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-20">
-                    <p className="text-sm text-red-400">{error}</p>
-                    <button
-                        onClick={() => currentDocumentId && fetchMindmap(currentDocumentId)}
-                        className="text-xs text-slate-400 hover:text-slate-200 underline underline-offset-2"
-                    >
-                        Retry
-                    </button>
-                </div>
-            )}
+            {/* Canvas */}
+            <div className="flex-1 w-full h-full relative overflow-hidden">
+                {!loading && !failed && (
+                    <svg
+                        ref={svgRef}
+                        className="w-full h-full"
+                        style={{ background: 'transparent' }}
+                    />
+                )}
 
-            {/* ── SVG canvas ───────────────────────────────────────────── */}
-            <svg
-                ref={svgRef}
-                className="w-full h-full flex-1"
-                style={{ background: 'transparent' }}
-            />
+                {loading && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-[2px]">
+                        <div className="relative w-20 h-20">
+                            <div className="absolute inset-0 rounded-full border-4 border-blue-500/10" />
+                            <div className="absolute inset-0 rounded-full border-4 border-t-blue-500 animate-spin" />
+                        </div>
+                        <p className="text-sm font-bold text-slate-400 mt-6 tracking-widest animate-pulse uppercase">Mapping Intelligence...</p>
+                    </div>
+                )}
+            </div>
 
-            {/* ── Hint ─────────────────────────────────────────────────── */}
-            <div className="absolute bottom-3 right-3 text-[10px] text-slate-600 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity select-none">
-                Scroll to zoom · Drag to pan
+            {/* Interaction Hint */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-sm px-4 py-1.5 rounded-full border border-white/5 text-[9px] uppercase tracking-tighter text-slate-500 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-500">
+                Pinch to Zoom • Drag to Pan • Click Nodes to Expand
             </div>
         </Card>
     );
