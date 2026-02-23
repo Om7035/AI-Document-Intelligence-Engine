@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-multipart
+pymupdf
+spacy
+sentence-transformers
+faiss-cpu
+ollama
+sqlalchemy
+pydantic
+pydantic-settings
+aiofiles
+python-dotenv
+networkx
+requests
